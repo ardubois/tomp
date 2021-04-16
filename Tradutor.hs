@@ -13,8 +13,9 @@ data Stm = Atrib String Exp | If Exp [Stm] [Stm] | Do [Stm] Exp
     | CallS String [Exp] | Printf String [Exp] | Return Exp | Block [Stm]
 
 data Access = R | W | RW
+   deriving (Eq)
 data Type = Void | Int | Float |  Deref Int Type | User String
-data Exp = Var String | Num Int | Call String [Exp] | Op String Exp Exp | Aterisc Exp | Addr Exp 
+data Exp = Var String | Num Int | Call String [Exp] | Op String Exp Exp | Asterisc Exp | Addr Exp 
 
 -------------------
 
@@ -38,12 +39,13 @@ vaStm (For e1 e2 e3 s) = For e1 e2 e3 (map vaStm s)
 vaStm r = r
 
 vanillaStm :: [(Access,String)] -> [Stm] -> [Stm]
-vanillaStm la stm = Decl [(User "vtm\\_tx\\_t", "tx\\_00"++ show incCont)] : 
-                    Atrib "x" (Var "y") :
-                    genBoilerplate la ++ genStms la stm
+vanillaStm la stm = Decl [(User "vtm\\_data\\_set\\_t", "dta\\_00"++ show incCont)] : 
+                    Decl [(User "vtm\\_tx\\_t", "tx\\_00"++ show getCont)]: 
+                    genBoilerplate la :
+                    genStms la stm
 
-genBoilerplate :: [(Access,String)] -> [Stm]
-genBoilerplate la =  Decl (genVarDecl la) :[]
+genBoilerplate :: [(Access,String)] -> Stm
+genBoilerplate la =  Decl (genVarDecl la) 
 
 cont :: IORef Int
 cont = unsafePerformIO (newIORef 0)
@@ -60,10 +62,32 @@ getCont = unsafePerformIO $readIORef cont
 
 genVarDecl :: [(Access,String)] -> [(Type,String)]
 genVarDecl []  = []
-genVarDecl ((a,v):xs) = (User "vtm\\_uint\\_t",v) : genVarDecl xs
+genVarDecl ((a,v):xs) = (User "vtm_uint_t", genVar v) : genVarDecl xs
 
 genVar :: String -> String
-genVar v = "tx_"++ v ++ "_tmp"
+genVar v = "tx_"++ v ++ "_tmp" ++ (show getCont)
+
+--data Exp = Var String | Num Int | Call String [Exp] | Op String Exp Exp | Asterisc Exp | Addr Exp 
+
+getReadVars :: [(Access,String)]-> Exp -> [String]
+getReadVars la (Var v)  
+    | elem (R, v) la || elem (RW, v) la = [v]
+    | otherwise =[]
+getReadVars la (Num i) = []
+getReadVars la (Call s e) = (foldr (++) [] . map (getReadVars la)) e
+getReadVars la (Op s e1 e2) = getReadVars la e1 ++ getReadVars la e2
+getReadVars la (Asterisc e) = getReadVars la e
+getReadVars la (Addr e) = getReadVars la e
+
+replaceReadVars :: [(Access,String)]-> Exp -> Exp
+replaceReadVars la (Var v)  
+    | elem (R, v) la || elem (RW, v) la = Var (genVar v)
+    | otherwise = Var v
+replaceReadVars la (Num i) = (Num i)
+replaceReadVars la (Call s e) = Call s (map (replaceReadVars la) e)
+replaceReadVars la (Op s e1 e2) = Op s (replaceReadVars la e1) (replaceReadVars la e2)
+replaceReadVars la (Asterisc e) = Asterisc (replaceReadVars la e)
+replaceReadVars la (Addr e) = Addr (replaceReadVars la e)
 
 genStms  :: [(Access,String)] -> [Stm] -> [Stm]
 genStms la [] = []
@@ -94,7 +118,7 @@ strExp (Var str) = str
 strExp (Num i) = show i
 strExp (Call fn e) = fn ++ "(" ++ strArgs e ++ ")"
 strExp (Op o e1 e2) = strExp e1 ++ " " ++ o ++ " " ++ strExp e2 
-strExp (Aterisc e) = "*" ++ strExp e
+strExp (Asterisc e) = "*" ++ strExp e
 strExp (Addr e) = "&" ++ strExp e 
 
 strArgs :: [Exp] -> String
