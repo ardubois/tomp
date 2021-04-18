@@ -45,7 +45,7 @@ vanillaStm la stm = Decl [(User "vtm_data_set_t", "dta00"++ show incCont)] :
                     genDataSetPack la ( "dta00"++ show incCont) ++
 		    (Atrib ("tx_00"++ show getCont) (Call "vtm_start" [Addr (Var ( "dta00"++show getCont))]):
 		    genBoilerplate la :
-                    genStms la stm)
+                    genStms la stm) ++ [CallS "vtm_commit" [Addr (Var ("tx_00"++show getCont))]]
 
 genDataSetPack :: [(Access,String)] -> String -> [Stm]
 genDataSetPack [] dta = []
@@ -83,7 +83,7 @@ genVar v = "tx_"++ v ++ "_tmp" ++ (show getCont)
 
 genReads :: [String]-> [Stm]
 genReads [] = []
-genReads (v:xs) = Atrib (genVar v) (Call "vtm_read" [Addr (Var ( "dta00"++show getCont)), Addr (Var v)])
+genReads (v:xs) = Atrib (genVar v) (Call "vtm_read" [Addr (Var ( "tx_00"++show getCont)), Addr (Var v)])
                                     : genReads xs
 
 getReadVars :: [(Access,String)]-> Exp -> [String]
@@ -98,7 +98,7 @@ getReadVars la (Addr e) = getReadVars la e
 
 replaceReadVars :: [(Access,String)]-> Exp -> Exp
 replaceReadVars la (Var v)  
-    | elem (R, v) la || elem (RW, v) la = Var (genVar v)
+    | elem (R, v) la || elem (RW, v) la =Var (genVar v)
     | otherwise = Var v
 replaceReadVars la (Num i) = (Num i)
 replaceReadVars la (Call s e) = Call s (map (replaceReadVars la) e)
@@ -108,11 +108,13 @@ replaceReadVars la (Addr e) = Addr (replaceReadVars la e)
 
 genStms  :: [(Access,String)] -> [Stm] -> [Stm]
 genStms la [] = []
-genStms la ((Atrib s exp):xs) = (Atrib s exp) 
-                         : genStms la xs
+genStms la ((Atrib s exp):xs) = reads ++ ((Atrib (genVar s) expn) : write: genStms la xs)
 	where
 	vars = getReadVars la exp
 	expn = replaceReadVars la exp
+	reads = genReads vars
+        write = CallS "vtm_write" [Addr (Var ( "tx_00"++show getCont)), Addr (Var (genVar s)), Addr (Var s)]
+
 
 isTrans :: [(Access,String)] -> String -> Bool
 isTrans [] v = False
