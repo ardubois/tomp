@@ -39,8 +39,9 @@ vaStm (For e1 e2 e3 s) = For e1 e2 e3 (map vaStm s)
 vaStm r = r
 
 vanillaStm :: [(Access,String)] -> [Stm] -> [Stm]
-vanillaStm la stm = Decl [(User "vtm\\_data\\_set\\_t", "dta\\_00"++ show incCont)] : 
-                    Decl [(User "vtm\\_tx\\_t", "tx\\_00"++ show getCont)]: 
+vanillaStm la stm = Decl [(User "vtm_data_set_t", "dta00"++ show incCont)] : 
+                    Decl [(User "vtm_tx_t", "tx_00"++ show getCont)]: 
+                    CallS "vtm_dataset_init" [Addr (Var ("dta00"++show getCont))]:
                     genBoilerplate la :
                     genStms la stm
 
@@ -55,6 +56,11 @@ incCont = unsafePerformIO $ do
                             x<-readIORef cont
                             writeIORef cont (x+1)
                             return (x+1)
+incCont2 :: IO Int
+incCont2 = do
+          x<-readIORef cont
+          writeIORef cont (x+1)
+          return (x+1)
 
 getCont :: Int
 getCont = unsafePerformIO $readIORef cont
@@ -67,7 +73,6 @@ genVarDecl ((a,v):xs) = (User "vtm_uint_t", genVar v) : genVarDecl xs
 genVar :: String -> String
 genVar v = "tx_"++ v ++ "_tmp" ++ (show getCont)
 
---data Exp = Var String | Num Int | Call String [Exp] | Op String Exp Exp | Asterisc Exp | Addr Exp 
 
 getReadVars :: [(Access,String)]-> Exp -> [String]
 getReadVars la (Var v)  
