@@ -13,7 +13,7 @@ data Stm = Atrib String Exp | If Exp [Stm] [Stm] | Do [Stm] Exp
     | CallS String [Exp] | Printf String [Exp] | Return Exp | Block [Stm]
 
 data Access = R | W | RW
-   deriving (Eq)
+   deriving (Eq,Show)
 data Type = Void | Int | Float |  Deref Int Type | User String
 data Exp = Var String | Num Int | Call String [Exp] | Op String Exp Exp | Asterisc Exp | Addr Exp 
 
@@ -42,8 +42,15 @@ vanillaStm :: [(Access,String)] -> [Stm] -> [Stm]
 vanillaStm la stm = Decl [(User "vtm_data_set_t", "dta00"++ show incCont)] : 
                     Decl [(User "vtm_tx_t", "tx_00"++ show getCont)]: 
                     CallS "vtm_dataset_init" [Addr (Var ("dta00"++show getCont))]:
-                    genBoilerplate la :
-                    genStms la stm
+                    genDataSetPack la ( "dta00"++ show incCont) ++
+		    (Atrib ("tx_00"++ show getCont) (Call "vtm_start" [Addr (Var ( "dta00"++show getCont))]):
+		    genBoilerplate la :
+                    genStms la stm)
+
+genDataSetPack :: [(Access,String)] -> String -> [Stm]
+genDataSetPack [] dta = []
+genDataSetPack ((a,v):xs) dta = CallS "vtm_dataset_pack" [Addr (Var dta), Var (show a), Addr (Var v)]
+                                                         :genDataSetPack xs dta
 
 genBoilerplate :: [(Access,String)] -> Stm
 genBoilerplate la =  Decl (genVarDecl la) 
@@ -74,6 +81,11 @@ genVar :: String -> String
 genVar v = "tx_"++ v ++ "_tmp" ++ (show getCont)
 
 
+genReads :: [String]-> [Stm]
+genReads [] = []
+genReads (v:xs) = Atrib (genVar v) (Call "vtm_read" [Addr (Var ( "dta00"++show getCont)), Addr (Var v)])
+                                    : genReads xs
+
 getReadVars :: [(Access,String)]-> Exp -> [String]
 getReadVars la (Var v)  
     | elem (R, v) la || elem (RW, v) la = [v]
@@ -96,7 +108,11 @@ replaceReadVars la (Addr e) = Addr (replaceReadVars la e)
 
 genStms  :: [(Access,String)] -> [Stm] -> [Stm]
 genStms la [] = []
-genStms la ((Atrib s exp):xs) = (Atrib s exp) : genStms la xs
+genStms la ((Atrib s exp):xs) = (Atrib s exp) 
+                         : genStms la xs
+	where
+	vars = getReadVars la exp
+	expn = replaceReadVars la exp
 
 isTrans :: [(Access,String)] -> String -> Bool
 isTrans [] v = False
